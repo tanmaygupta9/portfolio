@@ -1,0 +1,617 @@
+---
+title: "ECMA 31330 Project: Code"
+author: "Tanmay Gupta, Shopnavo Biswas, David Tang"
+date: "30/05/2021"
+output: html_document
+---
+
+```{r}
+################################################################################
+# this is to load in the data
+################################################################################
+
+library(tidyverse)
+library(foreign) 
+data <- read.dta("police-crime-data/data/crime2.dta")
+data <- data[data$year > 1969,]
+
+diff <- function(x)(x - lag(x))
+
+# per capita variables
+data <- data %>% 
+    mutate(violent = murder + rape + robbery + assault) %>% 
+    mutate(property = burglary + larceny + auto) %>% 
+    mutate_at(c("sworn", "murder", "rape",
+              "robbery", "assault", "burglary",
+              "larceny", "auto",
+              'sta_educ', 'sta_welf'),
+            funs(./citypop * 100000)) %>% 
+    mutate(a15_24 = a15_19 + a20_24)
+    
+
+# first difference the variables
+fd_data <- data %>% 
+    remove_missing() %>% 
+    group_by(city) %>% 
+    arrange(year) %>% 
+    mutate_at(c("sworn", "sta_educ", "sta_welf", 
+                "murder", "rape", "robbery", 
+                "assault", "burglary", "larceny", "auto",
+                "violent", "property"), log) %>% 
+    mutate_at(c("sworn", "sta_educ", "sta_welf", 
+                "murder", "rape", "robbery", 
+                "unemp", "cityfemh", "a15_24", "citybla",
+                "assault", "burglary", "larceny", "auto",
+                "violent", "property"), diff) %>% 
+    mutate(lag_sworn = lag(sworn)) %>% 
+    mutate(lag_mayor = lag(mayor)) %>% 
+    mutate(lag_governor = lag(governor)) %>% 
+    remove_missing() %>% 
+    ungroup() 
+```
+
+```{r}
+# OLS estimates of coefficients on crime (for comparison)
+ols <- lm(cbind(violent, property, murder, rape, assault, robbery,
+                burglary, larceny, auto) ~
+              sworn + sta_welf + sta_educ + unemp + a15_24 + 
+              citybla + cityfemh + factor(city) + factor(year),
+          data = fd_data)
+ols$coefficients['sworn',]
+
+crimes <- c("violent", "property", "murder", "rape", "assault", "robbery",
+                "burglary", "larceny", "auto") 
+ols_results <- matrix(nrow = length(crimes), ncol = 3) 
+ols_results[1, ] <- c("Crime", "Est", "SE")
+for(i in 1:length(summary(ols))){
+  res <- summary(ols)[[i]]
+  est <- res$coef['sworn', 1]
+  se <- res$coef['sworn', 2]
+  ols_results[i, 1] <- crimes[i] 
+  ols_results[i, 2] <- est 
+  ols_results[i, 3] <- se 
+}
+
+ols_results <- as.data.frame(ols_results)
+
+```
+
+
+```{r}
+# TSLS estimates of the causal parameter
+# note the difference with Levitt's specification (we do not share any effects)
+library(AER)
+attach(fd_data)
+iv.violent <- ivreg(violent ~
+          sworn + sta_welf + sta_educ + unemp + a15_24 + 
+          citybla + cityfemh + factor(city) + factor(year)
+         | .-sworn + mayor + governor,
+      data = fd_data)
+
+iv.property <- ivreg(property ~
+          sworn + sta_welf + sta_educ + unemp + a15_24 + 
+          citybla + cityfemh + factor(city) + factor(year)
+         | .-sworn + mayor + governor,
+      data = fd_data)
+
+iv.murder <- ivreg(murder ~
+          sworn + sta_welf + sta_educ + unemp + a15_24 + 
+          citybla + cityfemh + factor(city) + factor(year)
+         | .-sworn + mayor + governor,
+      data = fd_data)
+
+iv_rape <- ivreg(rape ~
+          sworn + sta_welf + sta_educ + unemp + a15_24 + 
+          citybla + cityfemh + factor(city) + factor(year)
+         | .-sworn + mayor + governor,
+      data = fd_data)
+
+iv_assault <- ivreg(assault ~
+          sworn + sta_welf + sta_educ + unemp + a15_24 + 
+          citybla + cityfemh + factor(city) + factor(year)
+         | .-sworn + mayor + governor,
+      data = fd_data)
+
+iv_robbery <- ivreg(robbery ~
+          sworn + sta_welf + sta_educ + unemp + a15_24 + 
+          citybla + cityfemh + factor(city) + factor(year)
+         | .-sworn + mayor + governor,
+      data = fd_data)
+
+iv_burglary <- ivreg(burglary ~
+          sworn + sta_welf + sta_educ + unemp + a15_24 + 
+          citybla + cityfemh + factor(city) + factor(year)
+         | .-sworn + mayor + governor,
+      data = fd_data)
+
+iv_larceny <- ivreg(larceny ~
+          sworn + sta_welf + sta_educ + unemp + a15_24 + 
+          citybla + cityfemh + factor(city) + factor(year)
+         | .-sworn + mayor + governor,
+      data = fd_data)
+
+iv_auto <- ivreg(auto ~
+          sworn + sta_welf + sta_educ + unemp + a15_24 + 
+          citybla + cityfemh + factor(city) + factor(year)
+         | .-sworn + mayor + governor,
+      data = fd_data)
+```
+```{r}
+# results from IV regression
+iv_results <- data.frame(rbind(c("Violent", summary(iv.violent)$coef['sworn', ]),
+                    c("Property", summary(iv.property)$coef['sworn', ]), 
+                    c("Murder", summary(iv.murder)$coef['sworn', ]), 
+                    c("Rape", summary(iv_rape)$coef['sworn', ]), 
+                    c("Assault", summary(iv_assault)$coef['sworn', ]), 
+                    c("Robbery", summary(iv_robbery)$coef['sworn', ]), 
+                    c("Burglary", summary(iv_burglary)$coef['sworn', ]), 
+                    c("Larceny", summary(iv_larceny)$coef['sworn', ]), 
+                    c("Auto", summary(iv_auto)$coef['sworn', ])))
+
+```
+
+```{r}
+library(ivbart)
+library(tidyverse)
+attach(fd_data)
+```
+
+
+
+
+BART WITH REAL DATA 
+```{r}
+################################################################################
+# estimating the causal effect with BART
+################################################################################
+attach(fd_data)
+Z.mat <- cbind(mayor, governor)
+X.mat <- model.matrix(~sta_educ + sta_welf + unemp + 
+                          citybla + cityfemh + a15_24 + 
+                          as.factor(city) + as.factor(year))
+#X.mat <- cbind(sta_educ, sta_welf, unemp, citybla, cityfemh, a15_24)
+T.mat <- sworn
+#Y.mat <- property
+
+bart_res_violent <- ivbart(Z.mat, X.mat, T.mat, violent, nd = 500, printevery = 100000)
+bart_res_prop <- ivbart(Z.mat, X.mat, T.mat, property, nd = 500, printevery = 100000)
+bart_res_murder <- ivbart(Z.mat, X.mat, T.mat, murder, nd = 500, printevery = 100000)
+bart_res_rape <- ivbart(Z.mat, X.mat, T.mat, rape, nd = 500, printevery = 100000)
+bart_res_assault <- ivbart(Z.mat, X.mat, T.mat, assault, nd = 500, printevery = 100000)
+bart_res_robbery <- ivbart(Z.mat, X.mat, T.mat, robbery, nd = 500, printevery = 100000)
+bart_res_burglary <- ivbart(Z.mat, X.mat, T.mat, burglary, nd = 500, printevery = 100000)
+bart_res_larceny <- ivbart(Z.mat, X.mat, T.mat, larceny, nd = 500, printevery = 100000)
+bart_res_auto <- ivbart(Z.mat, X.mat, T.mat, auto, nd = 500, printevery = 100000)
+
+##########
+br_violent_mean <- mean(bart_res_violent$dbeta)
+br_violent_sd <- sd(bart_res_violent$dbeta)
+
+br_prop_mean <- mean(bart_res_prop$dbeta)
+br_prop_sd <- sd(bart_res_prop$dbeta)
+
+br_murder_mean <- mean(bart_res_murder$dbeta)
+br_murder_sd <- sd(bart_res_murder$dbeta)
+
+br_rape_mean <- mean(bart_res_rape$dbeta)
+br_rape_sd <- sd(bart_res_rape$dbeta)
+
+br_assault_mean <- mean(bart_res_assault$dbeta)
+br_assault_sd <- sd(bart_res_assault$dbeta)
+
+br_robbery_mean <- mean(bart_res_robbery$dbeta)
+br_robbery_sd <- sd(bart_res_robbery$dbeta)
+
+br_burglary_mean <- mean(bart_res_burglary$dbeta)
+br_burglary_sd <- sd(bart_res_burglary$dbeta)
+
+br_larceny_mean <- mean(bart_res_larceny$dbeta)
+br_larceny_sd <- sd(bart_res_larceny$dbeta)
+
+br_auto_mean <- mean(bart_res_auto$dbeta)
+br_auto_sd <- sd(bart_res_auto$dbeta)
+
+bart_results <- data.frame(rbind(c("Crime", "Est", "SD"), 
+                      c("Violent", br_violent_mean, br_violent_sd), 
+                      c("Property", br_prop_mean, br_prop_sd),
+                      c("Murder", br_murder_mean, br_murder_sd),
+                      c("Rape", br_rape_mean, br_rape_sd),
+                      c("Assault", br_assault_mean, br_assault_sd),
+                      c("Robbery", br_robbery_mean, br_robbery_sd),
+                      c("Burglary", br_burglary_mean, br_burglary_sd),
+                      c("Larceny", br_larceny_mean, br_larceny_sd),
+                      c("Auto", br_auto_mean, br_auto_sd)))
+```
+
+
+```{r}
+################################################################################
+# simple simulation function
+################################################################################
+library(ivbart)
+library(AER)
+library(tidyverse)
+sim <- function(st = 5, n = 1000){
+    # U is a vector of confounders
+    U <- matrix(rnorm(n * 3), nrow = n, ncol = 3)
+    A <- matrix(rnorm(3), nrow = 3)
+    
+    # Z is the instrument 
+    Z <- rbernoulli(n) %>% as.integer()
+    
+    # X is the treatment
+    X <- rnorm(n, mean = Z * st) +  U %*% A + rnorm(n)
+    beta <- c(3, 1, 1, 1)
+    Y <- cbind(X, U) %*% beta + rnorm(n)
+    return(list(Y = Y, Z = Z, X = X, U = U))
+}
+```
+
+
+```{r}
+################################################################################
+# evaluate confidence level of standard errors
+################################################################################
+eval.mc <- function(mean.beta, sd.beta, true.beta, factor = 1){
+    lower <- mean.beta - factor * 1.96 * sd.beta
+    upper <- mean.beta + factor * 1.96 * sd.beta
+    return(ifelse(true.beta > lower & true.beta < upper, 1, 0))
+}
+```
+
+```{r}
+################################################################################
+# test bart on the simulations simulation
+################################################################################
+bart_simple <- 0
+iv_simple <- 0
+n <- 50
+
+for (i in 1:n) {
+    print(i)
+    data <- sim()
+    
+    X <- data$X
+    Y <- data$Y
+    Z <- data$Z
+    
+    res <- ivbart(Z, 0, X, Y, nd = 500, printevery = 1000000)
+    sd.bart <- res$dbeta %>% sd()
+    mean.bart <- res$dbeta %>% mean()
+    
+    mean.iv <- summary(ivreg(Y ~ X | Z))$coefficients['X', 1]
+    sd.iv <- summary(ivreg(Y ~ X | Z))$coefficients['X', 2]
+    
+    bart_simple <- bart_simple + eval.mc(mean.bart, sd.bart, 3, factor = 1.5)
+    iv_simple <- iv_simple + eval.mc(mean.iv, sd.iv, 3)
+}
+```
+
+
+```{r}
+################################################################################
+# estimate the first stage using a random forest
+# estimate standard errors with bootstrapping
+################################################################################
+library(randomForest)
+iv.rf <- function(Z, W, X, Y){
+    if(any(is.na(W))){
+        f1 <- formula('X ~ Z')
+        f2 <- formula('Y ~ fitted')
+    }
+    else {
+        idw <- 1:ncol(W)
+        idz <- 1:ncol(Z)
+        W.form <- paste(sapply(idw, function (x) paste0('W[,', x, ']')),
+                        collapse = ' + ')
+        Z.form <- paste(sapply(idz, function (x) paste0('Z[,', x, ']')),
+                        collapse = ' + ')
+        f1 <- formula(paste('X ~', W.form, '+', Z.form))
+        f2 <- formula(paste('Y ~ fitted +', W.form))
+    }
+    # estimate first stage with random forest
+    iv.1 <- randomForest(f1)
+    fitted <- iv.1$predicted
+    
+    # estimate the second stage with regression
+    iv.2 <- lm(f2)
+    rf.mean <- summary(iv.2)$coef['fitted', 1]
+    return(rf.mean)
+}
+
+bootstrap.rf <- function(Z, W, X, Y, zdim = 1){
+    samples <- 50
+    res <- vector(length = samples)
+    for (i in 1:samples){
+        n <- length(Y)
+        # resampling the data with replacement
+        idx <- sample(1:n, replace = T, size = n)
+        X.bs <- X[idx]
+        Y.bs <- Y[idx]
+        if (zdim == 1){Z.bs <- Z[idx]}
+        else {Z.bs <- Z[idx,]}
+        if(!any(is.na(W))){ W.bs <- W[idx,] }
+        else { W.bs <- NA }
+        res[i] <- iv.rf(Z.bs, W.bs, X.bs, Y.bs)
+    }
+    return(list(mean = mean(res), sd = sd(res)))
+}
+```
+
+
+
+```{r}
+################################################################################
+# test if bootstrapping works on a simulated dataset
+################################################################################
+n <- 20
+
+ols.cal <- matrix(0, ncol = 3, nrow = n)
+tsls.cal <- matrix(0, ncol = 3, nrow = n)
+rf.cal <- matrix(0, ncol = 3, nrow = n)
+
+ols_est <- c() 
+ols_sd <- c() 
+tsls_est <- c() 
+tsls_sd <- c() 
+rf_est <- c()
+rf_sd <- c() 
+
+for (i in 1:n) {
+    print(i)
+    data <- sim(st = 0.5)
+    
+    X <- data$X
+    Y <- data$Y
+    Z <- data$Z
+    
+    rf <- bootstrap.rf(Z, NA, X, Y)
+    tsls <- ivreg(Y ~ X | .-X + Z)
+    ols <- lm(Y ~ X)
+    
+    ols.mean <- summary(ols)$coef['X', 1]
+    ols.sd <- summary(ols)$coef['X', 2]
+    ols_est[i] <- ols.mean
+    ols_sd[i] <- ols.sd 
+    
+    tsls.mean <- summary(tsls)$coef['X', 1]
+    tsls.sd <- summary(tsls)$coef['X', 2]
+    tsls_est[i] <- tsls.mean 
+    tsls_sd[i] <- tsls.sd 
+    
+    rf.mean <- rf$mean
+    rf.sd <- rf$sd
+    rf_est[i] <- rf.mean 
+    rf_sd[i] <- rf.sd 
+    
+    ols.cal[i,] <- c(ols.mean - ols.sd * 1.96,
+                     ols.mean,
+                     ols.mean + ols.sd * 1.96)
+    tsls.cal[i,] <- c(tsls.mean - tsls.sd * 1.96,
+                      tsls.mean,
+                      tsls.mean + tsls.sd * 1.96)
+    rf.cal[i,] <- c(rf.mean - rf.sd * 1.96, 
+                    rf.mean, 
+                    rf.mean + rf.sd * 1.96)
+}
+```
+
+```{r}
+################################################################################
+# see how well the various methods are calibrated
+################################################################################
+df <- rbind(cbind(data.frame(tsls.cal), "Method" = rep('TSLS'), iter = 1:n),
+            cbind(data.frame(ols.cal), "Method" = rep('OLS'), iter = 1:n),
+            cbind(data.frame(rf.cal), "Method" = rep('Random Forest'), iter = 1:n))
+
+df %>% ggplot(aes(iter, X2, color = Method)) +
+    geom_errorbar(aes(ymin = X1, ymax = X3)) +
+    geom_hline(yintercept = 3)+xlab("Iteration") + ylab("Estimate")+theme_bw() 
+```
+
+
+```{r}
+######RESULTS 
+
+#OLS mean 
+mean(ols_est)
+sd(ols_est)
+
+#TSLS
+mean(tsls_est)
+sd(tsls_est)
+
+#RF
+mean(rf_est)
+sd(rf_est)
+
+#coverage 
+coverage <- function(matrix, true_val){
+  res <- ifelse(matrix[, 1] < true_val & matrix[, 3] > true_val, 1, 0)
+  return(mean(res))
+}
+coverage(ols.cal, 3)
+coverage(tsls.cal, 3)
+coverage(rf.cal, 3)
+
+
+
+```
+
+Better DGP: MC2 (RF)
+
+```{r}
+################################################################################
+# run the random forest on the real data
+################################################################################
+#violent 
+
+attach(fd_data)
+Z <- cbind(mayor, governor)
+X <- sworn
+Y <- violent
+W <- model.matrix(~ sta_educ + sta_welf + citybla + cityfemh + unemp + a15_24 + factor(year) + 0)
+violent_rf <- bootstrap.rf(Z, W, X, Y, zdim = 2)
+```
+
+
+```{r}
+##By crime 
+
+#murder
+attach(fd_data)
+Z <- cbind(mayor, governor)
+X <- sworn
+Y <- murder
+W <- model.matrix(~ sta_educ + sta_welf + citybla + cityfemh + unemp + a15_24 + factor(year) + 0)
+murder_rf <- bootstrap.rf(Z, W, X, Y, zdim = 2)
+
+
+
+
+
+#rape 
+attach(fd_data)
+Z <- cbind(mayor, governor)
+X <- sworn
+Y <- rape
+W <- model.matrix(~ sta_educ + sta_welf + citybla + cityfemh + unemp + a15_24 + factor(year) + 0)
+rape_rf <- bootstrap.rf(Z, W, X, Y, zdim = 2)
+
+
+
+#assault 
+Z <- cbind(mayor, governor)
+X <- sworn
+Y <- assault
+W <- model.matrix(~ sta_educ + sta_welf + citybla + cityfemh + unemp + a15_24 + factor(year) + 0)
+assault_rf <- bootstrap.rf(Z, W, X, Y, zdim = 2)
+
+
+#robbery 
+Z <- cbind(mayor, governor)
+X <- sworn
+Y <- robbery 
+W <- model.matrix(~ sta_educ + sta_welf + citybla + cityfemh + unemp + a15_24 + factor(year) + 0)
+robbery_rf <- bootstrap.rf(Z, W, X, Y, zdim = 2)
+
+
+
+#burglary 
+Z <- cbind(mayor, governor)
+X <- sworn
+Y <- burglary 
+W <- model.matrix(~ sta_educ + sta_welf + citybla + cityfemh + unemp + a15_24 + factor(year) + 0)
+burglary_rf <- bootstrap.rf(Z, W, X, Y, zdim = 2)
+
+
+
+#larceny 
+Z <- cbind(mayor, governor)
+X <- sworn
+Y <- larceny 
+W <- model.matrix(~ sta_educ + sta_welf + citybla + cityfemh + unemp + a15_24 + factor(year) + 0)
+larceny_rf <- bootstrap.rf(Z, W, X, Y, zdim = 2)
+
+
+#auto
+Z <- cbind(mayor, governor)
+X <- sworn
+Y <- auto 
+W <- model.matrix(~ sta_educ + sta_welf + citybla + cityfemh + unemp + a15_24 + factor(year) + 0)
+auto_rf <- bootstrap.rf(Z, W, X, Y, zdim = 2)
+
+
+```
+
+
+```{r}
+emp_res_rf <- data.frame(rbind(c("Crime", "Mean", "SD"), 
+                    c("Violent", violent_rf$mean, violent_rf$sd), 
+                    c("Property", prop_rf$mean, prop_rf$sd), 
+                    c("Murder", murder_rf$mean, murder_rf$sd), 
+                    c("Rape", rape_rf$mean, rape_rf$sd), 
+                    c("Assault", assault_rf$mean, assault_rf$sd), 
+                    c("Robbery", robbery_rf$mean, robbery_rf$sd),
+                    c("Burglary", burglary_rf$mean,burglary_rf$sd), 
+                    c("Larceny", larceny_rf$mean, larceny_rf$sd), 
+                    c("Auto", auto_rf$mean, auto_rf$sd)))
+
+write.csv(emp_res_rf, "rf_results.csv")
+
+```
+
+
+
+```{r}
+####PLOT
+df <- rbind(cbind(data.frame(iv.cal), "Method" = rep('TSLS'), iter = 1:n),
+            cbind(data.frame(rf_none.cal), "Method" = rep('Random Forest (no FE)'), iter = 1:n),
+            cbind(data.frame(rf_y.cal), "Method" = rep('Random Forest (FE)'), iter = 1:n))
+
+df %>% ggplot(aes(iter, X2, color = Method)) +
+    geom_errorbar(aes(ymin = X1, ymax = X3)) +
+    geom_hline(yintercept = 0)+xlab("Iteration") + ylab("Estimate")+theme_bw()+
+    ggsave("/Users/tanmaygupta/Dropbox/Spring 2021/ECMA 31330/project/pt//RF_sim/full.png", width = 30, height = 25, units = "cm")
+
+```
+
+
+
+
+
+
+
+```{r}
+n <- 20
+
+ols.cal <- matrix(0, ncol = 3, nrow = n)
+tsls.cal <- matrix(0, ncol = 3, nrow = n)
+rf.cal <- matrix(0, ncol = 3, nrow = n)
+
+ols_est <- c() 
+ols_sd <- c() 
+tsls_est <- c() 
+tsls_sd <- c() 
+rf_est <- c()
+rf_sd <- c() 
+
+for (i in 1:n) {
+    print(i)
+    data <- sim(st = 0.5)
+    
+    X <- data$X
+    Y <- data$Y
+    Z <- data$Z
+    
+    rf <- bootstrap.rf(Z, NA, X, Y)
+    tsls <- ivreg(Y ~ X | .-X + Z)
+    ols <- lm(Y ~ X)
+    
+    ols.mean <- summary(ols)$coef['X', 1]
+    ols.sd <- summary(ols)$coef['X', 2]
+    ols_est[i] <- ols.mean
+    ols_sd[i] <- ols.sd 
+    
+    tsls.mean <- summary(tsls)$coef['X', 1]
+    tsls.sd <- summary(tsls)$coef['X', 2]
+    tsls_est[i] <- tsls.mean 
+    tsls_sd[i] <- tsls.sd 
+    
+    rf.mean <- rf$mean
+    rf.sd <- rf$sd
+    rf_est[i] <- rf.mean 
+    rf_sd[i] <- rf.sd 
+    
+    ols.cal[i,] <- c(ols.mean - ols.sd * 1.96,
+                     ols.mean,
+                     ols.mean + ols.sd * 1.96)
+    tsls.cal[i,] <- c(tsls.mean - tsls.sd * 1.96,
+                      tsls.mean,
+                      tsls.mean + tsls.sd * 1.96)
+    rf.cal[i,] <- c(rf.mean - rf.sd * 1.96, 
+                    rf.mean, 
+                    rf.mean + rf.sd * 1.96)
+}
+
+```
