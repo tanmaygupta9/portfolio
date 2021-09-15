@@ -5,6 +5,7 @@ More specifically, this repository includes:
 
 1. My project looking at the causal impact of the State of Bihar (India) repealing the Agricultural Produce Marketing Committee Act in 2006 on night lights and labor market outcomes, done for Applications of Econometric and Data Science Methods at UChicago. Code files and PDF are in the folder 'Bihar NL'. Done in collaboration with my classmate Ana Rath. 
 2. My project on Machine Learning methods in Two-Stage Least Squares IV estimation, and the application of Random Forests to Steven Levitt's study on police and crime. Code files and PDF are in the folder 'Random Forest IV'. Done in collaboration with my classmates David Tang and Shopnavo Biswas. 
+3. A project in python which solves the optimization problem of a representative household in the neoclassical economic framework using Dynamic Programming. The focus of this project is to efficiently implement optimization algorithms in Python. It can be found in the folder 'Dynamic Programming'. 
 
 
 Things I have not included any further files on, but other projects I have worked/assisted professors on: 
